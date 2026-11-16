@@ -48,6 +48,12 @@ video{width:100%;border-radius:4px;border:2px solid var(--ac);background:#000;ma
 #toast{background:var(--ac)!important;color:#000!important;border-radius:4px!important;position:fixed;left:50%;bottom:calc(80px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#000c;color:#fff;padding:10px 16px;border-radius:20px;opacity:0;transition:.25s;pointer-events:none;max-width:90%;text-align:center}
 #toast.show{opacity:1}
 .res{background:var(--card);border-left:4px solid var(--ac);border-radius:4px;padding:10px;margin:6px 0;display:flex;gap:10px;align-items:center}
+
+.star{background:none;border:0;color:var(--mut);font-size:28px;line-height:1;padding:6px 4px;margin-left:auto;font-family:Arial,sans-serif}
+.star.on{color:var(--ac)}
+#cam{position:fixed;inset:0;z-index:50;background:#000;padding:calc(env(safe-area-inset-top) + 14px) 14px calc(env(safe-area-inset-bottom) + 14px);overflow:auto}
+.camwrap{width:100%;aspect-ratio:1/1;border:3px solid var(--ac);border-radius:4px;overflow:hidden;background:#111;margin-bottom:12px}
+.camwrap video{width:100%;height:100%;object-fit:cover;border:0;border-radius:0;max-height:none}
 </style>
 <title>SimaStilo - collection</title>
 </head>
@@ -106,13 +112,20 @@ function toast(msg) {
 function beep() {
   try { navigator.vibrate && navigator.vibrate(60); const a = new (window.AudioContext || window.webkitAudioContext)(); const o = a.createOscillator(); o.frequency.value = 880; o.connect(a.destination); o.start(); setTimeout(() => { o.stop(); a.close(); }, 90); } catch (e) {}
 }
-function resizeImage(blobOrFile, max = 900, q = 0.72) {
+function resizeImage(blobOrFile, max = 900, q = 0.72, square = false) {
   return new Promise((res, rej) => {
     const url = URL.createObjectURL(blobOrFile); const img = new Image();
     img.onload = () => {
-      const k = Math.min(1, max / Math.max(img.width, img.height));
-      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      const c = document.createElement('canvas');
+      if (square) {
+        const s = Math.min(img.width, img.height), out = Math.min(s, max);
+        c.width = c.height = out; c.getContext('2d').drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, out, out);
+      } else {
+        const k = Math.min(1, max / Math.max(img.width, img.height));
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      }
+      URL.revokeObjectURL(url);
       res(c.toDataURL('image/jpeg', q));
     };
     img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('img')); };
@@ -127,6 +140,27 @@ async function fetchJSON(url) {
 async function coverToDataURL(url) {
   if (!url) return '';
   try { const r = await fetch(url); if (!r.ok) return ''; const b = await r.blob(); if (b.size < 500) return ''; return await resizeImage(b, 700, 0.75); } catch (e) { return ''; }
+}
+
+function squareCamera() {
+  return new Promise(async resolve => {
+    const ov = document.createElement('div'); ov.id = 'cam';
+    ov.innerHTML = '<div class="camwrap"><video playsinline muted autoplay></video></div><p class="mut" style="text-align:center">Inquadra la copertina nel quadrato</p><div class="row"><button class="btn sec" id="camX">Annulla</button><button class="btn" id="camSnap">Scatta</button></div>';
+    document.body.appendChild(ov);
+    const v = ov.querySelector('video'); let stream;
+    const close = val => { if (stream) stream.getTracks().forEach(t => t.stop()); ov.remove(); resolve(val); };
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1920 } } });
+      v.srcObject = stream; await v.play();
+    } catch (e) { return close(null); }
+    ov.querySelector('#camX').onclick = () => close(null);
+    ov.querySelector('#camSnap').onclick = () => {
+      const w = v.videoWidth, h = v.videoHeight, s = Math.min(w, h), out = Math.min(s, 1000);
+      const c = document.createElement('canvas'); c.width = c.height = out;
+      c.getContext('2d').drawImage(v, (w - s) / 2, (h - s) / 2, s, s, 0, 0, out, out);
+      beep(); close(c.toDataURL('image/jpeg', 0.75));
+    };
+  });
 }
 
 /* ---------- online lookups ---------- */
@@ -200,7 +234,7 @@ function viewList() {
   const v = $('#view');
   v.innerHTML = `
     <input id="q" type="search" placeholder="Cerca titolo, artista, tag, codice…" value="${esc(state.q)}">
-    <div class="chips">${[['all', 'Tutto'], ...Object.entries(FORMATS).map(([k, x]) => [k, x[0]]), ['todo', 'Da completare']].map(([k, n]) => `<button class="chip ${state.filter === k ? 'on' : ''}" data-f="${k}">${n}</button>`).join('')}</div>
+    <div class="chips">${[['all', 'Tutto'], ['fav', '★ Preferiti'], ...Object.entries(FORMATS).map(([k, x]) => [k, x[0]]), ['todo', 'Da completare']].map(([k, n]) => `<button class="chip ${state.filter === k ? 'on' : ''}" data-f="${k}">${n}</button>`).join('')}</div>
     <select id="sort"><option value="recent">Più recenti</option><option value="title">Titolo A-Z</option><option value="creator">Artista/Autore A-Z</option><option value="year">Anno</option></select>
     <div id="list"></div>`;
   $('#sort').value = state.sort;
@@ -211,7 +245,7 @@ function viewList() {
 }
 function renderItems() {
   const q = state.q.trim().toLowerCase();
-  let r = items.filter(i => (state.filter === 'all' || (state.filter === 'todo' ? (i.tags || []).includes('da-completare') : i.format === state.filter)) &&
+  let r = items.filter(i => (state.filter === 'all' || (state.filter === 'fav' ? i.fav : state.filter === 'todo' ? (i.tags || []).includes('da-completare') : i.format === state.filter)) &&
     (!q || [i.title, i.creator, i.publisher, i.barcode, i.catalogNo, i.location, i.notes, (i.tags || []).join(' ')].join(' ').toLowerCase().includes(q)));
   const cmp = { recent: (a, b) => b.createdAt - a.createdAt, title: (a, b) => a.title.localeCompare(b.title, 'it'), creator: (a, b) => (a.creator || '').localeCompare(b.creator || '', 'it'), year: (a, b) => (a.year || 0) - (b.year || 0) }[state.sort];
   r.sort(cmp);
@@ -219,8 +253,13 @@ function renderItems() {
     <div class="item" data-id="${i.id}">
       ${i.photo ? `<img class="cover" src="${i.photo}">` : `<div class="cover">${FORMATS[i.format][1]}</div>`}
       <div><div class="badge">${FORMATS[i.format][0]}${i.year ? ' · ' + esc(i.year) : ''}</div><div class="t">${esc(i.title)}</div><div class="s">${esc(i.creator)}${i.publisher ? ' · ' + esc(i.publisher) : ''}</div></div>
+      <button class="star ${i.fav ? 'on' : ''}" data-star="${i.id}" aria-label="Preferito">${i.fav ? '★' : '☆'}</button>
     </div>`).join('') + (r.length > 300 ? `<p class="mut">Mostrati i primi 300: affina la ricerca.</p>` : '') : `<p class="mut">${items.length ? 'Nessun risultato.' : 'Ancora vuota. Tocca “Scansiona” o “+ Nuovo” per iniziare.'}</p>`;
-  document.querySelectorAll('.item').forEach(el => el.onclick = () => go('edit', { id: el.dataset.id }));
+  document.querySelectorAll('.item').forEach(el => el.onclick = async e => {
+    const st = e.target.closest('.star');
+    if (st) { const it = items.find(x => x.id === st.dataset.star); it.fav = !it.fav; await DB.put(it); renderItems(); return; }
+    go('edit', { id: el.dataset.id });
+  });
 }
 
 /* ---------- EDIT ---------- */
@@ -230,8 +269,10 @@ function viewEdit(p) {
   const fmt = d.format || 'vinyl';
   $('#title').textContent = it ? 'Modifica' : 'Nuovo oggetto';
   let photo = d.photo || '';
+  let fav = !!d.fav;
   const v = $('#view');
   v.innerHTML = `
+    <button class="btn sec" id="btnFav"></button>
     <label>Formato</label>
     <select id="f_format">${Object.entries(FORMATS).map(([k, x]) => `<option value="${k}" ${k === fmt ? 'selected' : ''}>${x[0]}</option>`).join('')}</select>
     <div class="row"><button class="btn sec" id="btnScan">Scansiona codice</button><button class="btn sec" id="btnSearch">Cerca online</button></div>
@@ -250,7 +291,8 @@ function viewEdit(p) {
     <label>Foto</label>
     <div id="photoBox"></div>
     <input type="file" id="f_file" accept="image/*" class="hidden">
-    <div class="row"><button class="btn sec" id="btnPhoto">Scatta / scegli foto</button><button class="btn sec" id="btnNoPhoto">Rimuovi foto</button></div>
+    <div class="row"><button class="btn sec" id="btnCam">Scatta foto (quadrata)</button><button class="btn sec" id="btnPhoto">Dalla libreria</button></div>
+    <button class="btn del" id="btnNoPhoto">Rimuovi foto</button>
     <button class="btn" id="btnSave">Salva</button>
     ${it ? '<button class="btn del" id="btnDel">Elimina</button>' : ''}`;
   const sync = () => {
@@ -264,8 +306,14 @@ function viewEdit(p) {
   const showPhoto = () => { $('#photoBox').innerHTML = photo ? `<img class="photo" src="${photo}">` : ''; };
   sync(); showPhoto();
   $('#f_format').onchange = sync;
+  const showFav = () => { $('#btnFav').textContent = fav ? '★ Nei preferiti' : '☆ Aggiungi ai preferiti'; };
+  showFav(); $('#btnFav').onclick = () => { fav = !fav; showFav(); };
+  $('#btnCam').onclick = async () => {
+    const p2 = await squareCamera();
+    if (p2) { photo = p2; showPhoto(); } else { toast('Fotocamera non disponibile: scegli dalla libreria'); }
+  };
   $('#btnPhoto').onclick = () => $('#f_file').click();
-  $('#f_file').onchange = async e => { const f = e.target.files[0]; if (f) { photo = await resizeImage(f); showPhoto(); } };
+  $('#f_file').onchange = async e => { const f = e.target.files[0]; if (f) { photo = await resizeImage(f, 1000, 0.75, true); showPhoto(); } };
   $('#btnNoPhoto').onclick = () => { photo = ''; showPhoto(); };
   $('#btnScan').onclick = () => go('scan', { returnDraft: true });
   const apply = async r => {
@@ -300,7 +348,7 @@ function viewEdit(p) {
       format: $('#f_format').value, title, creator: $('#f_creator').value.trim(), year: $('#f_year').value.trim(), publisher: $('#f_publisher').value.trim(),
       catalogNo: $('#f_catalogNo').value.trim(), barcode: $('#f_barcode').value.trim(), condition: $('#f_condition').value, sleeve: $('#f_sleeve').value,
       price: $('#f_price').value.trim(), value: $('#f_value').value.trim(), location: $('#f_location').value.trim(),
-      tags: $('#f_tags').value.split(',').map(s => s.trim()).filter(Boolean), notes: $('#f_notes').value.trim(), photo,
+      tags: $('#f_tags').value.split(',').map(s => s.trim()).filter(Boolean), notes: $('#f_notes').value.trim(), photo, fav,
     };
     await DB.put(rec); await reload(); toast('Salvato'); history_ = []; go('list', {}, false);
   };
@@ -365,7 +413,7 @@ function viewStats() {
   const maxD = Math.max(1, ...Object.values(dec));
   const eur = x => x.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' });
   $('#view').innerHTML = `
-    <div class="card"><div class="big">${items.length}</div><div class="mut">oggetti totali</div><p>💿 ${n('vinyl')} vinili · 📀 ${n('cd')} CD · 📖 ${n('book')} libri</p></div>
+    <div class="card"><div class="big">${items.length}</div><div class="mut">oggetti totali</div><p>★ ${items.filter(i => i.fav).length} preferiti</p><p>💿 ${n('vinyl')} vinili · 📀 ${n('cd')} CD · 📖 ${n('book')} libri</p></div>
     <div class="card"><div class="mut">Speso (somma prezzi pagati)</div><div class="big">${eur(sum('price'))}</div><div class="mut">Valore stimato: ${eur(sum('value'))}</div></div>
     <div class="card"><b>Per decennio</b>${Object.keys(dec).sort().map(d => `<div class="mut">${d}s · ${dec[d]}</div><div class="bar" style="width:${dec[d] / maxD * 100}%"></div>`).join('') || '<p class="mut">Nessun dato.</p>'}</div>
     <div class="card"><b>Più presenti</b>${topArt.map(([a, c]) => `<div class="mut">${esc(a)} · ${c}</div>`).join('') || '<p class="mut">Nessun dato.</p>'}</div>`;
@@ -397,9 +445,9 @@ function viewSettings() {
     } catch (err) { toast('File non valido'); }
   };
   $('#bCsv').onclick = () => {
-    const cols = ['format', 'title', 'creator', 'year', 'publisher', 'catalogNo', 'barcode', 'condition', 'sleeve', 'price', 'value', 'location', 'tags', 'notes'];
+    const cols = ['format', 'title', 'creator', 'year', 'publisher', 'catalogNo', 'barcode', 'condition', 'sleeve', 'price', 'value', 'location', 'tags', 'notes', 'fav'];
     const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-    const csv = '\ufeff' + [cols.join(';'), ...items.map(i => cols.map(c => q(c === 'tags' ? (i.tags || []).join(', ') : i[c])).join(';'))].join('\n');
+    const csv = '\ufeff' + [cols.join(';'), ...items.map(i => cols.map(c => q(c === 'tags' ? (i.tags || []).join(', ') : c === 'fav' ? (i.fav ? 'sì' : '') : i[c])).join(';'))].join('\n');
     download('collezione.csv', csv, 'text/csv');
   };
   (navigator.storage && navigator.storage.persisted ? navigator.storage.persisted() : Promise.resolve(false)).then(p => { $('#pers').textContent = p ? 'sì' : 'no (fai backup regolari)'; });
