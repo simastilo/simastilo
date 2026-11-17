@@ -56,6 +56,23 @@ video{width:100%;border-radius:4px;border:3px solid #000;background:#000;max-hei
 #cam{position:fixed;inset:0;z-index:50;background:var(--bg);padding:calc(env(safe-area-inset-top) + 14px) 14px calc(env(safe-area-inset-bottom) + 14px);overflow:auto}
 .camwrap{width:100%;aspect-ratio:1/1;border:3px solid #000;border-radius:4px;overflow:hidden;background:#000;margin-bottom:12px}
 .camwrap video{width:100%;height:100%;object-fit:cover;border:0;border-radius:0;max-height:none}
+
+.tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+.tag{display:inline-block;font:inherit;font-size:10px;text-transform:uppercase;letter-spacing:.05em;padding:4px 8px;border-radius:3px;border:0;line-height:1.1}
+.sug{display:flex;flex-wrap:wrap;gap:6px;margin:-4px 0 14px}
+.item>div:nth-child(2){min-width:0}
+.thumbs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.thumb:first-child{grid-column:span 2}
+.thumb img{width:100%;aspect-ratio:1/1;object-fit:cover;border:2px solid #000;border-radius:4px;display:block;background:#000}
+.tbtn{display:flex;gap:6px;margin-top:4px}
+.tbtn button,.tbtn span{flex:1;font:inherit;font-size:11px;text-transform:uppercase;background:#000;color:#FFD500;border:0;border-radius:4px;padding:8px 4px;text-align:center}
+.tbtn span{background:#fff;color:#000;border:2px solid #000}
+
+.alert{background:#000;color:#FFD500;border-radius:4px;padding:12px 14px;margin-bottom:12px;font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+.rate{display:flex;gap:6px;margin:4px 0 14px}
+.rs{flex:1;background:transparent;border:2px solid #000;border-radius:4px;color:#000;font-size:26px;line-height:1;padding:8px 0;font-family:Arial,sans-serif}
+.rs.on{background:#fff}
+.sug{max-height:132px;overflow-y:auto}
 </style>
 <title>EclisSima studio</title>
 </head>
@@ -103,7 +120,12 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const FORMATS = { vinyl: ['Vinile', '💿'], cd: ['CD', '📀'], book: ['Libro', '📖'] };
 const CONDS = ['', 'M (mint)', 'NM', 'VG+', 'VG', 'G', 'P'];
 let items = [];
-let state = { filter: 'all', q: '', sort: 'recent' };
+const TAGPAL = [['#000', '#FFD500'], ['#fff', '#000'], ['#c1121f', '#fff'], ['#1d4ed8', '#fff'], ['#047857', '#fff'], ['#7e22ce', '#fff'], ['#c2410c', '#fff'], ['#0e7490', '#fff']];
+const DEFAULT_TAGS = ['Rock', 'Jazz', 'Pop', 'Classica', 'Elettronica', 'Hip Hop', 'Rap', 'Instrumental', 'Mixtape', 'Drum\'n\'Bass', 'Funky', 'Blues', 'Grunge', 'Heavy Metal', 'Crossover', 'Popolare', 'Soul', 'Reggae', 'Punk', 'Disco', 'Cantautori', 'Colonne sonore', 'Italiano', 'Writing', 'Arte', 'Fotografia', 'Graphic Novel', 'Limited Edition', 'Primo pressaggio', 'Autografato', 'Vinile colorato', 'Picture disc', 'Live', 'Raccolta', 'Remix'];
+const tagColor = t => { let h = 0; for (const c of t) h = (h * 31 + c.charCodeAt(0)) >>> 0; return TAGPAL[h % TAGPAL.length]; };
+const tagEl = (t, el = 'span', attrs = '') => { const [bg, fg] = tagColor(t.toLowerCase()); return `<${el} ${attrs} class="tag" style="background:${bg};color:${fg}">${esc(t)}</${el}>`; };
+const allTags = () => [...new Set(items.flatMap(i => i.tags || []).filter(t => t !== 'da-completare'))].sort((x, y) => x.localeCompare(y, 'it'));
+let state = { filter: 'all', q: '', sort: 'recent', tag: '', done: '' };
 let history_ = [];
 let scanner = null;
 
@@ -232,29 +254,36 @@ document.addEventListener('click', e => {
 
 /* ---------- LIST ---------- */
 function viewList() {
-  $('#title').textContent = `EclisSima · ${items.length}`;
+  $('#title').textContent = `EclisSima · ${items.filter(i => !i.wish).length}`;
   const v = $('#view');
-  v.innerHTML = `
+  const lb = +localStorage.getItem('lastBackup') || 0, days = (Date.now() - lb) / 864e5;
+  const banner = items.length && days > 7 ? `<div class="alert" id="bk">${lb ? `Ultimo backup ${Math.floor(days)} giorni fa.` : 'Non hai ancora fatto un backup.'} Tocca qui per farlo ora.</div>` : '';
+  v.innerHTML = `${banner}
     <input id="q" type="search" placeholder="Cerca titolo, artista, tag, codice…" value="${esc(state.q)}">
-    <div class="chips">${[['all', 'Tutto'], ['fav', '★ Preferiti'], ...Object.entries(FORMATS).map(([k, x]) => [k, x[0]]), ['todo', 'Da completare']].map(([k, n]) => `<button class="chip ${state.filter === k ? 'on' : ''}" data-f="${k}">${n}</button>`).join('')}</div>
-    <select id="sort"><option value="recent">Più recenti</option><option value="title">Titolo A-Z</option><option value="creator">Artista/Autore A-Z</option><option value="year">Anno</option></select>
+    <div class="chips">${[['all', 'Tutto'], ['fav', '★ Preferiti'], ['wish', 'Da cercare'], ...Object.entries(FORMATS).map(([k, x]) => [k, x[0]]), ['todo', 'Da completare']].map(([k, n]) => `<button class="chip ${state.filter === k ? 'on' : ''}" data-f="${k}">${n}</button>`).join('')}</div>
+    <select id="sort"><option value="recent">Più recenti</option><option value="title">Titolo A-Z</option><option value="creator">Artista/Autore A-Z</option><option value="year">Anno</option><option value="rating">Voto</option></select>
+    <select id="tagsel"><option value="">Tutti i tag</option>${allTags().map(t => `<option ${t === state.tag ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>
+    <select id="donesel"><option value="">Ascoltati/letti e non</option><option value="yes" ${state.done === 'yes' ? 'selected' : ''}>Già ascoltati o letti</option><option value="no" ${state.done === 'no' ? 'selected' : ''}>Da ascoltare o leggere</option></select>
     <div id="list"></div>`;
   $('#sort').value = state.sort;
   $('#q').oninput = e => { state.q = e.target.value; renderItems(); };
   $('#sort').onchange = e => { state.sort = e.target.value; renderItems(); };
+  $('#tagsel').onchange = e => { state.tag = e.target.value; renderItems(); };
+  $('#donesel').onchange = e => { state.done = e.target.value; renderItems(); };
+  if ($('#bk')) $('#bk').onclick = () => go('settings');
   v.querySelectorAll('.chip').forEach(c => c.onclick = () => { state.filter = c.dataset.f; viewList(); });
   renderItems();
 }
 function renderItems() {
   const q = state.q.trim().toLowerCase();
-  let r = items.filter(i => (state.filter === 'all' || (state.filter === 'fav' ? i.fav : state.filter === 'todo' ? (i.tags || []).includes('da-completare') : i.format === state.filter)) &&
+  let r = items.filter(i => (state.filter === 'wish' ? !!i.wish : !i.wish) && (!state.tag || (i.tags || []).includes(state.tag)) && (!state.done || (state.done === 'yes' ? !!i.done : !i.done)) && (state.filter === 'all' || state.filter === 'wish' || (state.filter === 'fav' ? i.fav : state.filter === 'todo' ? (i.tags || []).includes('da-completare') : i.format === state.filter)) &&
     (!q || [i.title, i.creator, i.publisher, i.barcode, i.catalogNo, i.location, i.notes, (i.tags || []).join(' ')].join(' ').toLowerCase().includes(q)));
-  const cmp = { recent: (a, b) => b.createdAt - a.createdAt, title: (a, b) => a.title.localeCompare(b.title, 'it'), creator: (a, b) => (a.creator || '').localeCompare(b.creator || '', 'it'), year: (a, b) => (a.year || 0) - (b.year || 0) }[state.sort];
+  const cmp = { recent: (a, b) => b.createdAt - a.createdAt, title: (a, b) => a.title.localeCompare(b.title, 'it'), creator: (a, b) => (a.creator || '').localeCompare(b.creator || '', 'it'), year: (a, b) => (a.year || 0) - (b.year || 0), rating: (a, b) => (b.rating || 0) - (a.rating || 0) }[state.sort];
   r.sort(cmp);
   $('#list').innerHTML = r.length ? r.slice(0, 300).map(i => `
     <div class="item" data-id="${i.id}">
       ${i.photo ? `<img class="cover" src="${i.photo}">` : `<div class="cover">${FORMATS[i.format][1]}</div>`}
-      <div><div class="badge">${FORMATS[i.format][0]}${i.year ? ' · ' + esc(i.year) : ''}</div><div class="t">${esc(i.title)}</div><div class="s">${esc(i.creator)}${i.publisher ? ' · ' + esc(i.publisher) : ''}</div></div>
+      <div><div class="badge">${FORMATS[i.format][0]}${i.year ? ' · ' + esc(i.year) : ''}${i.rating ? ' · ' + '★'.repeat(i.rating) : ''}${i.done ? ' · ✓' : ''}</div><div class="t">${esc(i.title)}</div><div class="s">${esc(i.creator)}${i.publisher ? ' · ' + esc(i.publisher) : ''}</div>${(i.tags || []).length ? `<div class="tags">${i.tags.map(t => tagEl(t)).join('')}</div>` : ''}</div>
       <button class="star ${i.fav ? 'on' : ''}" data-star="${i.id}" aria-label="Preferito">${i.fav ? '★' : '☆'}</button>
     </div>`).join('') + (r.length > 300 ? `<p class="mut">Mostrati i primi 300: affina la ricerca.</p>` : '') : `<p class="mut">${items.length ? 'Nessun risultato.' : 'Ancora vuota. Tocca “Scansiona” o “+ Nuovo” per iniziare.'}</p>`;
   document.querySelectorAll('.item').forEach(el => el.onclick = async e => {
@@ -270,14 +299,18 @@ function viewEdit(p) {
   const d = it || p.draft || {};
   const fmt = d.format || 'vinyl';
   $('#title').textContent = it ? 'Modifica' : 'Nuovo oggetto';
-  let photo = d.photo || '';
-  let fav = !!d.fav;
+  let photos = [d.photo, ...(d.photos || [])].filter(Boolean);
+  let fav = !!d.fav, wish = !!d.wish, rating = d.rating || 0, done = !!d.done;
   const v = $('#view');
   v.innerHTML = `
     <button class="btn sec" id="btnFav"></button>
+    <button class="btn sec" id="btnWish"></button>
+    <button class="btn sec" id="btnDone"></button>
+    <label>Voto</label><div class="rate" id="rate"></div>
     <label>Formato</label>
     <select id="f_format">${Object.entries(FORMATS).map(([k, x]) => `<option value="${k}" ${k === fmt ? 'selected' : ''}>${x[0]}</option>`).join('')}</select>
     <div class="row"><button class="btn sec" id="btnScan">Scansiona codice</button><button class="btn sec" id="btnSearch">Cerca online</button></div>
+    <button class="btn sec" id="btnValue"></button>
     <div id="results"></div>
     <label>Titolo *</label><input id="f_title" value="${esc(d.title)}">
     <label id="l_creator"></label><input id="f_creator" value="${esc(d.creator)}">
@@ -289,12 +322,13 @@ function viewEdit(p) {
     <div class="row"><div><label>Prezzo pagato (€)</label><input id="f_price" inputmode="decimal" value="${esc(d.price)}"></div><div><label>Valore stimato (€)</label><input id="f_value" inputmode="decimal" value="${esc(d.value)}"></div></div>
     <label>Posizione (scaffale, scatola…)</label><input id="f_location" value="${esc(d.location)}">
     <label>Tag (separati da virgola)</label><input id="f_tags" value="${esc((d.tags || []).join(', '))}">
+    <div id="tagSug" class="sug"></div>
     <label>Note</label><textarea id="f_notes">${esc(d.notes)}</textarea>
     <label>Foto</label>
     <div id="photoBox"></div>
-    <input type="file" id="f_file" accept="image/*" class="hidden">
-    <div class="row"><button class="btn sec" id="btnCam">Scatta foto (quadrata)</button><button class="btn sec" id="btnPhoto">Dalla libreria</button></div>
-    <button class="btn del" id="btnNoPhoto">Rimuovi foto</button>
+    <input type="file" id="f_file" accept="image/*" multiple class="hidden">
+    <div class="row"><button class="btn sec" id="btnCam">Aggiungi foto (quadrata)</button><button class="btn sec" id="btnPhoto">Dalla libreria</button></div>
+
     <button class="btn" id="btnSave">Salva</button>
     ${it ? '<button class="btn del" id="btnDel">Elimina</button>' : ''}`;
   const sync = () => {
@@ -305,25 +339,54 @@ function viewEdit(p) {
     $('#sleeveBox').classList.toggle('hidden', f !== 'vinyl');
     $('#l_cond').textContent = f === 'vinyl' ? 'Condizione disco' : 'Condizione';
   };
-  const showPhoto = () => { $('#photoBox').innerHTML = photo ? `<img class="photo" src="${photo}">` : ''; };
+  const showPhoto = () => {
+    const box = $('#photoBox');
+    box.innerHTML = photos.length ? `<div class="thumbs">${photos.map((p, i) => `<div class="thumb"><img src="${p}"><div class="tbtn">${i === 0 ? '<span>Copertina</span>' : `<button type="button" data-cover="${i}">Copertina</button>`}<button type="button" data-del="${i}">Elimina</button></div></div>`).join('')}</div>` : '';
+    box.querySelectorAll('[data-cover]').forEach(b => b.onclick = () => { const [x] = photos.splice(+b.dataset.cover, 1); photos.unshift(x); showPhoto(); });
+    box.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { photos.splice(+b.dataset.del, 1); showPhoto(); });
+  };
+  const renderSug = () => {
+    const cur = $('#f_tags').value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    const seen = new Set();
+    const list = [...allTags(), ...DEFAULT_TAGS].filter(t => { const k = t.toLowerCase(); if (seen.has(k) || cur.includes(k)) return false; seen.add(k); return true; });
+    $('#tagSug').innerHTML = list.map(t => tagEl(t, 'button', `type="button" data-t="${esc(t)}"`)).join('');
+    $('#tagSug').querySelectorAll('[data-t]').forEach(b => b.onclick = () => {
+      const v2 = $('#f_tags').value.split(',').map(s => s.trim()).filter(Boolean); v2.push(b.dataset.t); $('#f_tags').value = v2.join(', '); renderSug();
+    });
+  };
+  const showWish = () => { $('#btnWish').textContent = wish ? 'Da cercare: non ce l’ho ancora' : 'Nella mia collezione'; };
+  showWish(); $('#btnWish').onclick = () => { wish = !wish; showWish(); };
+  const showDone = () => { const mu = $('#f_format').value !== 'book'; $('#btnDone').textContent = done ? (mu ? '✓ Ascoltato' : '✓ Letto') : (mu ? 'Da ascoltare' : 'Da leggere'); };
+  const showRate = () => {
+    $('#rate').innerHTML = [1, 2, 3, 4, 5].map(n => `<button type="button" class="rs ${n <= rating ? 'on' : ''}" data-r="${n}">${n <= rating ? '★' : '☆'}</button>`).join('');
+    $('#rate').querySelectorAll('.rs').forEach(b => b.onclick = () => { rating = rating === +b.dataset.r ? 0 : +b.dataset.r; showRate(); });
+  };
+  const showValue = () => { $('#btnValue').textContent = $('#f_format').value === 'book' ? 'Cerca il valore su AbeBooks' : 'Cerca il valore su Discogs'; };
+  $('#btnDone').onclick = () => { done = !done; showDone(); };
+  $('#btnValue').onclick = () => {
+    const f = $('#f_format').value, code = $('#f_barcode').value.trim(), t = $('#f_title').value.trim(), c = $('#f_creator').value.trim();
+    const q = code || [c, t].filter(Boolean).join(' '); if (!q) return toast('Inserisci titolo o codice');
+    window.open(f === 'book' ? 'https://www.abebooks.it/servlet/SearchResults?kn=' + encodeURIComponent(q) : 'https://www.discogs.com/search/?type=release&q=' + encodeURIComponent(q), '_blank');
+  };
+  showDone(); showRate(); showValue();
+  renderSug(); $('#f_tags').oninput = renderSug;
   sync(); showPhoto();
-  $('#f_format').onchange = sync;
+  $('#f_format').onchange = () => { sync(); showDone(); showValue(); };
   const showFav = () => { $('#btnFav').textContent = fav ? '★ Nei preferiti' : '☆ Aggiungi ai preferiti'; };
   showFav(); $('#btnFav').onclick = () => { fav = !fav; showFav(); };
   $('#btnCam').onclick = async () => {
     const p2 = await squareCamera();
-    if (p2) { photo = p2; showPhoto(); } else { toast('Fotocamera non disponibile: scegli dalla libreria'); }
+    if (p2) { photos.push(p2); showPhoto(); } else { toast('Fotocamera non disponibile: scegli dalla libreria'); }
   };
   $('#btnPhoto').onclick = () => $('#f_file').click();
-  $('#f_file').onchange = async e => { const f = e.target.files[0]; if (f) { photo = await resizeImage(f, 1000, 0.75, true); showPhoto(); } };
-  $('#btnNoPhoto').onclick = () => { photo = ''; showPhoto(); };
+  $('#f_file').onchange = async e => { for (const f of e.target.files) { photos.push(await resizeImage(f, 1000, 0.75, true)); } e.target.value = ''; showPhoto(); };
   $('#btnScan').onclick = () => go('scan', { returnDraft: true });
   const apply = async r => {
     const set = (id, val) => { if (val) $('#' + id).value = val; };
     if (r.format) $('#f_format').value = r.format; sync();
     set('f_title', r.title); set('f_creator', r.creator); set('f_year', r.year); set('f_publisher', r.publisher); set('f_catalogNo', r.catalogNo); set('f_barcode', r.barcode);
     $('#results').innerHTML = '';
-    if (!photo && r.coverUrl) { photo = await coverToDataURL(r.coverUrl); showPhoto(); }
+    if (!photos.length && r.coverUrl) { const cp = await coverToDataURL(r.coverUrl); if (cp) photos.push(cp); showPhoto(); }
   };
   $('#btnSearch').onclick = async () => {
     const q = [$('#f_creator').value, $('#f_title').value].join(' ').trim() || $('#f_barcode').value.trim();
@@ -350,7 +413,7 @@ function viewEdit(p) {
       format: $('#f_format').value, title, creator: $('#f_creator').value.trim(), year: $('#f_year').value.trim(), publisher: $('#f_publisher').value.trim(),
       catalogNo: $('#f_catalogNo').value.trim(), barcode: $('#f_barcode').value.trim(), condition: $('#f_condition').value, sleeve: $('#f_sleeve').value,
       price: $('#f_price').value.trim(), value: $('#f_value').value.trim(), location: $('#f_location').value.trim(),
-      tags: $('#f_tags').value.split(',').map(s => s.trim()).filter(Boolean), notes: $('#f_notes').value.trim(), photo, fav,
+      tags: $('#f_tags').value.split(',').map(s => s.trim()).filter(Boolean), notes: $('#f_notes').value.trim(), photo: photos[0] || '', photos: photos.slice(1), fav, wish, rating, done,
     };
     await DB.put(rec); await reload(); toast('Salvato'); history_ = []; go('list', {}, false);
   };
@@ -364,7 +427,7 @@ function viewScan(p) {
   const quickDefault = !p.returnDraft;
   $('#view').innerHTML = `
     <div class="row"><div><label>Formato</label><select id="s_format"><option value="">Rileva da solo</option>${Object.entries(FORMATS).map(([k, x]) => `<option value="${k}">${x[0]}</option>`).join('')}</select></div>
-    <div><label>Modalità</label><select id="s_mode"><option value="quick" ${quickDefault ? 'selected' : ''}>Veloce (salva e continua)</option><option value="form" ${quickDefault ? '' : 'selected'}>Apri scheda per controllo</option></select></div></div>
+    <div><label>Modalità</label><select id="s_mode"><option value="quick" ${quickDefault ? 'selected' : ''}>Veloce (salva e continua)</option><option value="form" ${quickDefault ? '' : 'selected'}>Apri scheda per controllo</option><option value="wish">Salva in “Da cercare”</option></select></div></div>
     <video id="vid" playsinline muted autoplay></video>
     <p class="mut" id="scanMsg">Inquadra il codice a barre.</p>
     <p class="mut" id="scanCount"></p>
@@ -375,7 +438,7 @@ function viewScan(p) {
     if (busy) return; busy = true;
     const hint = $('#s_format').value; const mode = $('#s_mode').value;
     beep(); $('#scanMsg').textContent = `Codice ${code}: cerco…`;
-    if (items.some(i => i.barcode === code) && mode === 'quick') { toast('Già in collezione'); $('#scanMsg').textContent = `${code} è già presente.`; setTimeout(() => busy = false, 1800); return; }
+    if (items.some(i => i.barcode === code && !!i.wish === (mode === 'wish')) && mode !== 'form') { toast(mode === 'wish' ? 'Già in “Da cercare”' : 'Già in collezione'); $('#scanMsg').textContent = `${code} è già presente.`; setTimeout(() => busy = false, 1800); return; }
     let r = null; try { r = await lookupBarcode(code, hint); } catch (e) {}
     if (mode === 'form') {
       const draft = r ? { ...r, photo: await coverToDataURL(r.coverUrl) } : { barcode: code, format: hint || (isBookCode(code) ? 'book' : 'vinyl') };
@@ -384,7 +447,7 @@ function viewScan(p) {
     }
     const rec = r ? { ...r, photo: await coverToDataURL(r.coverUrl), tags: [] } : { title: `Da completare (${code})`, barcode: code, format: hint || (isBookCode(code) ? 'book' : 'vinyl'), tags: ['da-completare'] };
     if (!r) rec.tags = ['da-completare'];
-    delete rec.coverUrl;
+    delete rec.coverUrl; if (mode === 'wish') rec.wish = true;
     await DB.put({ id: uid(), createdAt: Date.now(), creator: '', year: '', publisher: '', catalogNo: '', condition: '', sleeve: '', price: '', value: '', location: '', notes: '', format: 'vinyl', ...rec });
     await reload(); added++;
     $('#scanMsg').textContent = r ? `Aggiunto: ${r.title}` : `Non trovato: salvato come “da completare”.`;
@@ -406,18 +469,22 @@ function startScanner(onCode) {
 
 /* ---------- STATS ---------- */
 function viewStats() {
+  const own = items.filter(i => !i.wish);
   $('#title').textContent = 'Statistiche';
-  const n = f => items.filter(i => i.format === f).length;
-  const sum = k => items.reduce((a, i) => a + (parseFloat(String(i[k]).replace(',', '.')) || 0), 0);
-  const dec = {}; items.forEach(i => { const y = parseInt(i.year); if (y) { const d = Math.floor(y / 10) * 10; dec[d] = (dec[d] || 0) + 1; } });
-  const art = {}; items.forEach(i => { if (i.creator) art[i.creator] = (art[i.creator] || 0) + 1; });
+  const n = f => own.filter(i => i.format === f).length;
+  const sum = k => own.reduce((a, i) => a + (parseFloat(String(i[k]).replace(',', '.')) || 0), 0);
+  const dec = {}; own.forEach(i => { const y = parseInt(i.year); if (y) { const d = Math.floor(y / 10) * 10; dec[d] = (dec[d] || 0) + 1; } });
+  const art = {}; own.forEach(i => { if (i.creator) art[i.creator] = (art[i.creator] || 0) + 1; });
   const topArt = Object.entries(art).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const tg = {}; own.forEach(i => (i.tags || []).forEach(t => { if (t !== 'da-completare') tg[t] = (tg[t] || 0) + 1; }));
+  const topTg = Object.entries(tg).sort((a, b) => b[1] - a[1]).slice(0, 12); const maxT = Math.max(1, ...topTg.map(x => x[1]));
   const maxD = Math.max(1, ...Object.values(dec));
   const eur = x => x.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' });
   $('#view').innerHTML = `
-    <div class="card"><div class="big">${items.length}</div><div class="mut">oggetti totali</div><p>★ ${items.filter(i => i.fav).length} preferiti</p><p>💿 ${n('vinyl')} vinili · 📀 ${n('cd')} CD · 📖 ${n('book')} libri</p></div>
+    <div class="card"><div class="big">${own.length}</div><div class="mut">oggetti totali</div><p>★ ${own.filter(i => i.fav).length} preferiti · ✓ ${own.filter(i => i.done).length} già ascoltati o letti</p><p>💿 ${n('vinyl')} vinili · 📀 ${n('cd')} CD · 📖 ${n('book')} libri</p></div>
     <div class="card"><div class="mut">Speso (somma prezzi pagati)</div><div class="big">${eur(sum('price'))}</div><div class="mut">Valore stimato: ${eur(sum('value'))}</div></div>
     <div class="card"><b>Per decennio</b>${Object.keys(dec).sort().map(d => `<div class="mut">${d}s · ${dec[d]}</div><div class="bar" style="width:${dec[d] / maxD * 100}%"></div>`).join('') || '<p class="mut">Nessun dato.</p>'}</div>
+    <div class="card"><b>Per tag</b>${topTg.map(([t, c]) => `<div class="mut">${tagEl(t)} ${c}</div><div class="bar" style="width:${c / maxT * 100}%"></div>`).join('') || '<p class="mut">Nessun tag.</p>'}</div>
     <div class="card"><b>Più presenti</b>${topArt.map(([a, c]) => `<div class="mut">${esc(a)} · ${c}</div>`).join('') || '<p class="mut">Nessun dato.</p>'}</div>`;
 }
 
@@ -447,9 +514,9 @@ function viewSettings() {
     } catch (err) { toast('File non valido'); }
   };
   $('#bCsv').onclick = () => {
-    const cols = ['format', 'title', 'creator', 'year', 'publisher', 'catalogNo', 'barcode', 'condition', 'sleeve', 'price', 'value', 'location', 'tags', 'notes', 'fav'];
+    const cols = ['format', 'title', 'creator', 'year', 'publisher', 'catalogNo', 'barcode', 'condition', 'sleeve', 'price', 'value', 'location', 'tags', 'notes', 'fav', 'wish', 'rating', 'done'];
     const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-    const csv = '\ufeff' + [cols.join(';'), ...items.map(i => cols.map(c => q(c === 'tags' ? (i.tags || []).join(', ') : c === 'fav' ? (i.fav ? 'sì' : '') : i[c])).join(';'))].join('\n');
+    const csv = '\ufeff' + [cols.join(';'), ...items.map(i => cols.map(c => q(c === 'tags' ? (i.tags || []).join(', ') : (c === 'fav' || c === 'wish' || c === 'done') ? (i[c] ? 'sì' : '') : i[c])).join(';'))].join('\n');
     download('collezione.csv', csv, 'text/csv');
   };
   (navigator.storage && navigator.storage.persisted ? navigator.storage.persisted() : Promise.resolve(false)).then(p => { $('#pers').textContent = p ? 'sì' : 'no (fai backup regolari)'; });
